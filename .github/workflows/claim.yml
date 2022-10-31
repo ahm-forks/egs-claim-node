@@ -1,0 +1,65 @@
+name: claim freebies
+
+on:
+  workflow_dispatch:
+  schedule:
+  - cron: '30 17 * * 4'
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/claabs/epicgames-freegames-node:bullseye-slim
+    environment: claim-freebies
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/setup-node@v3
+      with:
+        node-version: '16'
+    - uses: actions/cache@v3
+      id:   egs-deps-cache
+      with:
+        key: ${{ runner.os }}-deps-${{ hashFiles('package-lock.json') }}
+        restore-keys: ${{ runner.os }}-npm-
+        path: node_modules
+
+    - run: npm install --include=dev
+      if: ${{ ! steps.egs-deps-cache.outputs.cache-hit }}
+
+    - name: configure
+      run: |
+        mkdir -p config &&
+        echo -n '{
+          "countryCode": "US",
+          "runOnStartup": true,
+          "runOnce": true,
+          "skipVersionCheck": true,
+          "logLevel": "error",
+          "webPortalConfig": {
+            "localtunnel": true
+          },
+          "accounts": [],
+          "notifiers": []
+        }' | jq '(
+          .notifiers += [{
+            "type":   "telegram",
+            "token":  "${{ secrets.TOKEN }}",
+            "chatId": "${{ secrets.CHAT }}"
+          }]
+          | .accounts += [{
+            "email":    "${{ secrets.MAIL }}",
+            "password": "${{ secrets.PASS }}",
+            "totp":     "${{ secrets.TOTP }}"
+          }]
+        )' > config/config.json
+
+    - uses: actions/cache@v3
+      id:   egs-auth-cache
+      with:
+        key: ${{ runner.os }}-auth-${{ hashFiles('config/*.json') }}
+        restore-keys: ${{ runner.os }}-auth-
+        path: config
+
+    - name: claim
+      run: npm start
+# vim: ft=yaml:ts=2:et:
